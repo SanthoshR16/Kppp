@@ -1,0 +1,17 @@
+# Python bytecode and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.pytest_cache/
+
+# Runtime and Database lock files
+*.sqlite-wal
+*.sqlite-shm
+logs/*.log
+
+# Operating System files
+.DS_Store
+Thumbs.db

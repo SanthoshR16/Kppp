@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>K.K. Allianze — KPPP Platform (17 Departments)</title>
+    <link rel="stylesheet" href="/web/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand-area">
+        <h1>K.K. Allianze — KPPP Platform</h1>
+        <p>17 Focus Departments &bull; Scoped Karnataka E-Procurement Hub</p>
+      </div>
+      <div class="header-right">
+        <span class="scope-badge">17 DEPTS ONLY</span>
+        <div class="status-pill online" id="watcherStatus">WATCHING</div>
+      </div>
+    </header>
+
+    <nav class="nav-tabs">
+      <button class="nav-btn active" data-tab="tab-dashboard">📊 Dashboard</button>
+      <button class="nav-btn" data-tab="tab-tenders">📑 Tenders (17 Depts)</button>
+      <button class="nav-btn" data-tab="tab-search">🔍 IND Search</button>
+      <button class="nav-btn" data-tab="tab-company">🏢 K.K. Allianze</button>
+      <button class="nav-btn" data-tab="tab-my-tenders">⭐ My Tenders</button>
+      <button class="nav-btn" data-tab="tab-coverage">🌐 Coverage & Log</button>
+    </nav>
+
+    <main class="page-shell">
+      <!-- DASHBOARD TAB -->
+      <section id="tab-dashboard" class="tab-pane active">
+        <div class="stats-grid" id="statsGrid"></div>
+
+        <div class="grid-2col">
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Recent In-Scope Tenders</h2>
+              <button class="action-btn" onclick="switchTab('tab-tenders')">View All &rarr;</button>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Tender No.</th>
+                  <th>Department</th>
+                  <th>Status</th>
+                  <th>Value (₹)</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="dashTenderTable"></tbody>
+            </table>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h2>17 Scoped Departments</h2>
+            </div>
+            <div class="dept-pills-container" id="dashDeptPills"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TENDERS TAB -->
+      <section id="tab-tenders" class="tab-pane">
+        <div class="panel">
+          <div class="panel-header flex-header">
+            <h2>Tenders Directory (17 Departments Only)</h2>
+            <div class="filter-controls">
+              <select id="tenderDeptFilter" onchange="filterTenders()">
+                <option value="">All 17 Departments</option>
+              </select>
+              <select id="tenderStatusFilter" onchange="filterTenders()">
+                <option value="">All Statuses</option>
+                <option value="PUBLISHED">Published</option>
+                <option value="AWARDED">Awarded</option>
+                <option value="EVALUATION_COMPLETED">Evaluation Completed</option>
+                <option value="CLOSED">Closed</option>
+              </select>
+              <input type="text" id="tenderSearchInput" placeholder="Filter by IND / number..." oninput="filterTenders()" />
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Tender Number</th>
+                <th>Department</th>
+                <th>Category</th>
+                <th>Status</th>
+                <th>Published</th>
+                <th>Closing</th>
+                <th>Flags</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="allTendersTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- IND SEARCH TAB -->
+      <section id="tab-search" class="tab-pane">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Instant IND Number Search</h2>
+            <p class="panel-sub">Search by partial or full IND number (e.g., <code>IND2012</code>, <code>IND0071</code>, <code>2648</code>). Instant matching across all in-scope tenders.</p>
+            <div class="search-box-large">
+              <input type="text" id="indSearchQuery" placeholder="Type IND number (e.g. IND2012, IND0061, CALL-2)..." oninput="runIndSearch()" autofocus />
+              <button class="primary-btn" onclick="runIndSearch()">Search</button>
+            </div>
+          </div>
+          <div id="indSearchResultsHeader" class="results-meta"></div>
+          <table>
+            <thead>
+              <tr>
+                <th>Tender Number</th>
+                <th>Department</th>
+                <th>Status</th>
+                <th>Est. Value (₹)</th>
+                <th>Published</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="indSearchResultsTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- COMPANY PAGE (K.K. ALLIANZE) -->
+      <section id="tab-company" class="tab-pane">
+        <div class="panel company-hero">
+          <div class="company-badge-row">
+            <h2>K.K. ALLIANZE / KAMAL KUMAR PARASMAL JAIN</h2>
+            <span class="supplier-pill">Supplier ID: 5086</span>
+          </div>
+          <div class="stats-grid company-stats" id="companyStatsGrid"></div>
+        </div>
+
+        <div class="grid-2col">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Participated Tenders & Outcomes</h3>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Tender</th>
+                  <th>Department</th>
+                  <th>Category</th>
+                  <th>Result</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="companyTendersTable"></tbody>
+            </table>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Competitor Intelligence (Who Beat Us)</h3>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Competitor Name</th>
+                  <th>Times Beat Us (L1)</th>
+                </tr>
+              </thead>
+              <tbody id="competitorsTable"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Item-Level Price Comparison (Our Price vs Winning Price)</h3>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Tender</th>
+                <th>Item Name</th>
+                <th>Our Rate (₹)</th>
+                <th>Our Total (₹)</th>
+                <th>Our Rank</th>
+                <th>Winner Name</th>
+                <th>Winning Rate (₹)</th>
+                <th>Winning Total (₹)</th>
+              </tr>
+            </thead>
+            <tbody id="priceComparisonTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- MY TENDERS TAB -->
+      <section id="tab-my-tenders" class="tab-pane">
+        <div class="panel">
+          <div class="panel-header flex-header">
+            <h2>My Tenders & Reconciliation</h2>
+            <div class="filter-controls">
+              <label class="toggle-label">
+                <input type="checkbox" id="unknownOnlyCheck" onchange="loadMyTenders()" />
+                Show only <strong>unknown_to_us</strong> (New Tenders Not in Excel)
+              </label>
+            </div>
+          </div>
+          <p class="panel-sub">Tenders where K.K. Allianze was automatically detected on KPPP and reconciled against the existing Excel workbook.</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Tender Number</th>
+                <th>Department</th>
+                <th>Status</th>
+                <th>Found Automatically</th>
+                <th>Reconciliation Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="myTendersTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- COVERAGE & SCAN LOG TAB -->
+      <section id="tab-coverage" class="tab-pane">
+        <div class="grid-2col">
+          <div class="panel">
+            <div class="panel-header">
+              <h2>17 Scoped Departments Coverage</h2>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Department Name</th>
+                  <th>Tenders Stored</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="coverageTable"></tbody>
+            </table>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Scan Runs & Heartbeat Log</h2>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Source</th>
+                  <th>Started At</th>
+                  <th>Status</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="scanLogTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- TENDER DETAIL & DOCUMENT VIEWER MODAL -->
+    <div id="tenderModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="modalTenderTitle">Tender Details</h2>
+          <button class="close-btn" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-meta-grid" id="modalMetaGrid"></div>
+          
+          <div class="modal-section">
+            <h3>Attached Documents (View / Download)</h3>
+            <ul id="modalDocList" class="doc-list"></ul>
+          </div>
+
+          <div class="modal-section">
+            <h3>Bids & Commercial Evaluation</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Item Name</th>
+                  <th>Supplier</th>
+                  <th>Rate (₹)</th>
+                  <th>Total (₹)</th>
+                  <th>Rank</th>
+                  <th>Selected</th>
+                </tr>
+              </thead>
+              <tbody id="modalBidsTable"></tbody>
+            </table>
+          </div>
+
+          <div class="modal-section">
+            <h3>Status Timeline</h3>
+            <ul id="modalTimeline" class="timeline-list"></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/web/app.js"></script>
+  </body>
+</html>
