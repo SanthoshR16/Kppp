@@ -1,0 +1,6 @@
+{
+  "name": "K.K. Allianze — KPPP Platform",
+  "description": "Karnataka Public Procurement Portal (KPPP) intelligence platform monitoring tenders across 17 focus departments, tracking competitor commercial evaluation bids, and managing company intelligence for K.K. Allianze.",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
