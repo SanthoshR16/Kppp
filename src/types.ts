@@ -88,6 +88,9 @@ export interface Tender {
   we_lost?: boolean;
   has_documents?: boolean;
   new_document?: boolean;
+  is_published_today?: boolean;
+  is_newly_discovered_today?: boolean;
+  is_published_yesterday?: boolean;
   completeness_score?: number;
   present_fields?: string[];
   missing_fields?: string[];
