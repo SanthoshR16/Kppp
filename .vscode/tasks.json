@@ -1,0 +1,53 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "KPPP 1: Backfill all history",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["backfill.py"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "KKA_TEST_MODE": "1" } },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "KPPP 2: Daily update loop",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["daily_update.py"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "KKA_TEST_MODE": "1" } },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "KPPP 3: Start website",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "KKA_TEST_MODE": "1" } },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "KPPP Verify: Python tests",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "pytest", "tests", "-q"],
+      "options": { "cwd": "${workspaceFolder}", "env": { "KKA_TEST_MODE": "1" } },
+      "problemMatcher": []
+    },
+    {
+      "label": "KPPP Verify: Frontend build",
+      "type": "npm",
+      "script": "build",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "KPPP 4: Verify",
+      "dependsOn": ["KPPP Verify: Python tests", "KPPP Verify: Frontend build"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    }
+  ]
+}
