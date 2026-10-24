@@ -2,11 +2,19 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "KPPP 0: Diagnose",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["diagnose.py"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
       "label": "KPPP 1: Backfill all history",
       "type": "process",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
       "args": ["backfill.py"],
-      "options": { "cwd": "${workspaceFolder}", "env": { "KKA_TEST_MODE": "1" } },
+      "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
       "problemMatcher": []
     },
@@ -15,7 +23,7 @@
       "type": "process",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
       "args": ["daily_update.py"],
-      "options": { "cwd": "${workspaceFolder}", "env": { "KKA_TEST_MODE": "1" } },
+      "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
       "problemMatcher": []
     },
@@ -24,7 +32,7 @@
       "type": "process",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
       "args": ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"],
-      "options": { "cwd": "${workspaceFolder}", "env": { "KKA_TEST_MODE": "1" } },
+      "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
       "problemMatcher": []
     },
@@ -37,6 +45,14 @@
       "problemMatcher": []
     },
     {
+      "label": "KPPP Verify: Verification kit",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["verify_all.py"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
       "label": "KPPP Verify: Frontend build",
       "type": "npm",
       "script": "build",
@@ -45,7 +61,11 @@
     },
     {
       "label": "KPPP 4: Verify",
-      "dependsOn": ["KPPP Verify: Python tests", "KPPP Verify: Frontend build"],
+      "dependsOn": [
+        "KPPP Verify: Python tests",
+        "KPPP Verify: Verification kit",
+        "KPPP Verify: Frontend build"
+      ],
       "dependsOrder": "sequence",
       "problemMatcher": []
     }

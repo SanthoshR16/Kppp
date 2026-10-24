@@ -34,6 +34,7 @@ type Tender = {
   l1_total?: string | number | null;
   difference?: number | null;
   result?: string;
+  check_reason?: string | null;
   quote?: { source: string; added_at: string; last_checked_at?: string | null; bids_opened_at?: string | null } | null;
   bids?: Bid[];
   items?: Array<Record<string, string | number | null>>;
@@ -70,10 +71,21 @@ type DetailTab = 'overview' | 'items' | 'bids' | 'timeline';
 const STATUSES = ['PUBLISHED', 'CLOSED', 'UNDER_EVALUATION', 'EVALUATION_COMPLETED', 'AWARDED', 'RETENDERED', 'RECALLED'];
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-  });
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
+    });
+  } catch (_networkErr) {
+    throw new Error('Backend not running. Start KPPP 3: Start website');
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('Backend not running. Start KPPP 3: Start website');
+  }
+
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { detail?: unknown } | null;
     const message = typeof body?.detail === 'string'
@@ -516,6 +528,11 @@ export default function App() {
                 </table>
               </div>}
               {detailTab === 'bids' && <div className="table-wrap">
+                {selectedTender.check_reason && (
+                  <div className="alert error">
+                    <strong>Verification Warning:</strong> {selectedTender.check_reason}
+                  </div>
+                )}
                 {selectedTender.bids?.length ? <table><thead><tr><th>Bidder</th><th>Supplier ID</th><th>Item</th><th>Rate</th><th>Total</th><th>Rank</th><th>Selected</th></tr></thead>
                   <tbody>{selectedTender.bids.map((bid, index) => {
                     const isUs = bid.supplier_id === '5086' || ['K K ALLIANZE', 'KAMAL KUMAR PARASMAL JAIN', 'KAMAL KUMAR P JAIN'].includes((bid.supplier_name || '').trim().toUpperCase());

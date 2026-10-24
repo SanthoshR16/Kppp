@@ -1,9 +1,9 @@
-# KPPP local runbook
+# KPPP Platform — Local Runbook & Operations Guide
 
-## First-time setup
+## 1. First-Time Setup
 
-1. In VS Code, choose **File > Open Folder** and open the `kppp_platform` folder.
-2. In the integrated terminal, run these commands from that folder:
+1. In VS Code, open the repository root folder (`File > Open Folder`).
+2. Open the integrated terminal (PowerShell / Command Prompt) and set up the virtual environment:
 
    ```powershell
    py -m venv .venv
@@ -12,47 +12,80 @@
    npm run build
    ```
 
-3. Open **Terminal > Run Task** and run:
-   - **KPPP 1: Backfill all history**
-   - **KPPP 2: Daily update loop**
-   - **KPPP 3: Start website**
-   - **KPPP 4: Verify**
+## 2. VS Code Tasks Execution Order
 
-   The backfill task is a long-running task. Inspect its terminal output and the
-   scan-health indicator; do not treat a failed, interrupted, or incomplete
-   backfill as complete.
+Run tasks from the VS Code top menu: **Terminal > Run Task...**
 
-4. Alternatively, run `run_all.bat` from the project folder to start the daily
-   updater and website in hidden processes. Their output is written under
-   `logs\`. The backfill is intentionally a separate task.
+| Task Name | Script / Command | Purpose |
+|---|---|---|
+| **KPPP 0: Diagnose** | `python diagnose.py` | Run this first. Checks DNS, TCP/TLS handshake, active departments, search endpoint, and full-view latency. |
+| **KPPP 1: Backfill all history** | `python backfill.py` | Performs full historical extraction across all 17 departments, 3 categories, and 7 statuses using monthly windows and prefix cross-checking. Resumes from `data/checkpoint.json`. |
+| **KPPP 2: Daily update loop** | `python daily_update.py` | Continuous background process: checks watched quoted tenders every 15 minutes, downloads comparative statements, detects L1 changes and bid openings, and runs an hourly backfill pass. |
+| **KPPP 3: Start website** | `uvicorn app.main:app --host 127.0.0.1 --port 8000` | Serves the full-stack FastAPI monitor and React frontend at `http://127.0.0.1:8000`. |
+| **KPPP 4: Verify** | `pytest tests`, `verify_all.py`, `npm run build` | Runs the full verification suite: offline unit tests, 9-section verification report, and web build audit. |
 
-## How the data flows
+Alternatively, run `run_all.bat` from the project folder to start the daily updater and website server in background processes (logs written under `logs/`).
 
-The Python source adapter makes unauthenticated requests to public KPPP
-endpoints. It rejects 401/403 explicitly, stops immediately on HTTP 429, and
-uses a single sequential request stream with a 0.4-second minimum delay.
-Accepted tender data is stored in `data\db\kppp.sqlite`. The FastAPI backend
-serves dashboard and search responses from that same SQLite database; the
-built React website is served by FastAPI on `http://127.0.0.1:8000`.
-There is no static tender JSON snapshot and no manual copying step.
+---
 
-The database, downloads, runtime logs, and `.env` files are local-only and
-ignored by Git. Attachments are not downloaded by the application. Existing
-document folders from the local archive are retained under
-`data\quarantine\documents`.
+## 3. When the PC Was Off for Some Days
 
-## When the PC was off
+When your PC has been powered off or offline for multiple days, run this exact sequence:
 
-Run **KPPP 1: Backfill all history** after starting the machine, review its
-reported page totals and errors, and then start **KPPP 2: Daily update loop**
-and **KPPP 3: Start website** (or use `run_all.bat`). Do not assume a missed-day
-gap was filled until the scan health and reconciliation output confirm it.
+1. **Step 1: Check Connectivity**
+   ```powershell
+   .\.venv\Scripts\python.exe diagnose.py
+   ```
+   Ensures the live portal is reachable and responsive.
 
-## Current verification limits
+2. **Step 2: Fill the Missed-Days Gap**
+   ```powershell
+   .\.venv\Scripts\python.exe backfill.py
+   ```
+   The engine reads the persisted watermark date from SQLite and automatically fills the gap from the last successful scan date to today in chronological order. The watermark advances only after each date succeeds.
 
-The portal endpoint and its date-window, reserved-tender, tender-type, bidder,
-and evaluation semantics must be verified against live responses before the
-backfill can be considered reconciled. The updater reports unverified bidder
-detail checks instead of inventing a successful check. The app exposes scan
-health and does not mark an unsuccessful or unverified portal request as a
-successful update.
+3. **Step 3: Resume Daily Watcher & Website**
+   Run **KPPP 2: Daily update loop** and **KPPP 3: Start website** (or run `run_all.bat`).
+
+4. **Step 4: Reconcile and Verify**
+   ```powershell
+   .\.venv\Scripts\python.exe reconcile.py
+   .\.venv\Scripts\python.exe verify_all.py
+   ```
+
+---
+
+## 4. Operational Scripts Guide
+
+### A. Live Department Verification
+```powershell
+.\.venv\Scripts\python.exe verify_departments.py
+```
+Queries `GET /portal-service/departments/activeDepartment`, checks the 17 focus department IDs, updates SQLite `focus_departments`, and flags any mismatch.
+
+### B. Portal Endpoint & Chunk Discovery
+```powershell
+.\.venv\Scripts\python.exe discover_endpoints.py
+```
+Downloads `main.js` and discovered chunks from the live portal to inspect exact bidder, evaluation, and reserved tender route declarations.
+
+### C. Import Quoted Tenders from Excel
+```powershell
+.\.venv\Scripts\python.exe import_excel_quotes.py <path_to_excel.xlsx>
+```
+Reads Excel sheets, detects the submitted/quoted column, normalizes tender numbers, imports them into the watch list, and prints a 10-matched vs 10-unmatched side-by-side audit table.
+
+### D. Offline Unit Tests
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+```
+Runs offline tests with in-memory fixtures (won, lost, winner mismatch check, item sum check, look-alikes).
+
+---
+
+## 5. Security & Rate-Limiting Policy
+
+- **Unauthenticated Public Endpoints Only**: Never pass tokens, passwords, cookies, or Authorization headers.
+- **Polite Pacing**: Default delay of 0.35–0.5s per request.
+- **Circuit Breaker**: Stops immediately on HTTP 429 (Rate Limit) or HTTP 401/403.
+- **Scope Restriction**: Only the 17 focus departments are saved to `tenders`. All other tender prefixes are rejected or marked out of scope.

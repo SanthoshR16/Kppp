@@ -194,13 +194,28 @@ def ensure_schema():
                 notes TEXT,
                 progress_json TEXT
             );
+            CREATE TABLE IF NOT EXISTS scan_watermarks (
+                state TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                watermark_date TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (state, source_name)
+            );
             """
         )
         ensure_column(connection, "focus_departments", "name_verified", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(connection, "focus_departments", "name_source", "TEXT NOT NULL DEFAULT 'local snapshot'")
         ensure_column(connection, "tenders", "title", "TEXT")
+        ensure_column(connection, "tenders", "department_name", "TEXT")
+        ensure_column(connection, "tenders", "tender_fee", "TEXT")
+        ensure_column(connection, "tenders", "officer_details", "TEXT")
         ensure_column(connection, "tenders", "out_of_scope", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(connection, "tenders", "bids_opened_at", "TEXT")
+        ensure_column(connection, "tenders", "nit_id", "TEXT")
+        ensure_column(connection, "tenders", "portal_tender_id", "TEXT")
+        ensure_column(connection, "tenders", "tender_type", "TEXT")
+        ensure_column(connection, "tenders", "check_reason", "TEXT")
+        ensure_column(connection, "bids", "check_reason", "TEXT")
 
         for code, portal_id in FOCUS_DEPARTMENTS:
             connection.execute(
@@ -287,7 +302,94 @@ def json_object(value):
     return result
 
 
-def upsert_public_tender(connection, source_row, expected_department=None):
+def fetch_and_store_tender_full_view(
+    client,
+    connection,
+    tender_number: str,
+    tender_id=None,
+    nit_id=None,
+    category: str = "GOODS",
+) -> bool:
+    """
+    Fetches the tender full view once per new or changed tender and stores
+    the real estimated value, EMD amount, tender fee, officer details, and item details.
+    """
+    if client is None:
+        return False
+    try:
+        data = client.get_tender_full_view(
+            expected_tender_number=tender_number,
+            tender_id=tender_id,
+            nit_id=nit_id,
+            category=category or "GOODS",
+        )
+    except Exception:
+        return False
+
+    now = now_utc()
+    estimated = (
+        data.get("estimatedValue")
+        or data.get("ecv")
+        or data.get("tenderValue")
+        or data.get("approximateCost")
+    )
+    emd = data.get("emdAmount") or data.get("emd") or data.get("earnestMoneyDeposit")
+    fee = data.get("tenderFee") or data.get("costOfTenderForm") or data.get("tenderFormFee")
+    officer = (
+        data.get("officerName")
+        or data.get("tenderInvitingOfficer")
+        or data.get("officerDesignation")
+        or data.get("officer")
+        or data.get("contactPerson")
+    )
+    items = data.get("items") or data.get("tenderItems") or data.get("bidItems") or []
+
+    connection.execute(
+        """
+        UPDATE tenders SET
+            estimated_value = coalesce(?, estimated_value),
+            emd_amount = coalesce(?, emd_amount),
+            tender_fee = coalesce(?, tender_fee),
+            officer_details = coalesce(?, officer_details),
+            updated_at = ?
+        WHERE state = ? AND tender_number = ?
+        """,
+        (
+            str(estimated) if estimated is not None else None,
+            str(emd) if emd is not None else None,
+            str(fee) if fee is not None else None,
+            str(officer) if officer is not None else None,
+            now,
+            STATE,
+            tender_number,
+        ),
+    )
+
+    if isinstance(items, list) and items:
+        connection.execute("DELETE FROM tender_items WHERE state = ? AND tender_number = ?", (STATE, tender_number))
+        for item in items:
+            if isinstance(item, dict):
+                connection.execute(
+                    """
+                    INSERT INTO tender_items(state, tender_number, item_code, item_name, quantity, unit, rate, total, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        STATE,
+                        tender_number,
+                        str(item.get("itemCode") or item.get("code") or "") or None,
+                        str(item.get("itemName") or item.get("name") or item.get("description") or "Item"),
+                        str(item.get("quantity") or item.get("qty") or "") or None,
+                        str(item.get("unit") or "") or None,
+                        str(item.get("rate") or item.get("estimatedRate") or "") or None,
+                        str(item.get("total") or "") or None,
+                        now,
+                    ),
+                )
+    return True
+
+
+def upsert_public_tender(connection, source_row, expected_department=None, client=None):
     if not isinstance(source_row, dict):
         return False
     tender_number = " ".join(
@@ -309,20 +411,32 @@ def upsert_public_tender(connection, source_row, expected_department=None):
     status = str(source_row.get("status") or "").upper() or None
     title = source_row.get("title") or source_row.get("tenderName") or source_row.get("tenderTitle")
     published = source_row.get("publishedDate") or source_row.get("publishDate")
-    closing = source_row.get("closingDate") or source_row.get("bidSubmissionEndDate")
-    estimated = source_row.get("estimatedValue") or source_row.get("tenderValue")
+    # Correct KPPP listing field is tenderClosureDate, with closingDate/bidSubmissionEndDate fallback
+    closing = source_row.get("tenderClosureDate") or source_row.get("closingDate") or source_row.get("bidSubmissionEndDate")
+    # Correct KPPP listing field is ecv, with estimatedValue/tenderValue fallback
+    estimated = source_row.get("ecv") or source_row.get("estimatedValue") or source_row.get("tenderValue")
     emd = source_row.get("emdAmount") or source_row.get("emd")
+    # Store deptName, id, nitId, and tenderType
+    dept_name = source_row.get("deptName") or source_row.get("departmentName") or source_row.get("dept_name")
+    portal_tender_id = source_row.get("id") or source_row.get("portal_tender_id") or source_row.get("portalTenderId")
+    nit_id = source_row.get("nitId") or source_row.get("nit_id")
+    tender_type = source_row.get("tenderType") or source_row.get("tender_type")
     raw = json.dumps(source_row, ensure_ascii=False, separators=(",", ":"))
 
     previous = connection.execute(
         """
-        SELECT status, closing_date FROM tenders
+        SELECT status, closing_date, portal_tender_id, nit_id, officer_details, estimated_value FROM tenders
         WHERE state = ? AND tender_number = ?
         """,
         (STATE, tender_number),
     ).fetchone()
+
+    is_new = (previous is None)
+    is_changed = False
+
     if previous:
         if status and previous["status"] != status:
+            is_changed = True
             connection.execute(
                 """
                 INSERT INTO tender_status_history(
@@ -338,7 +452,8 @@ def upsert_public_tender(connection, source_row, expected_department=None):
                 """,
                 (STATE, tender_number, previous["status"], status, timestamp),
             )
-        if closing and previous["closing_date"] != closing:
+        if closing and previous["closing_date"] != str(closing):
+            is_changed = True
             connection.execute(
                 """
                 INSERT INTO change_events(state, tender_number, change_type, old_value, new_value, created_at)
@@ -346,16 +461,22 @@ def upsert_public_tender(connection, source_row, expected_department=None):
                 """,
                 (STATE, tender_number, previous["closing_date"], str(closing), timestamp),
             )
+        if portal_tender_id and previous["portal_tender_id"] != str(portal_tender_id):
+            is_changed = True
+        if nit_id and previous["nit_id"] != str(nit_id):
+            is_changed = True
 
     connection.execute(
         """
         INSERT INTO tenders(
-            state, tender_number, department_code, category, status, title,
+            state, tender_number, department_code, department_name, category, status, title,
             published_date, closing_date, estimated_value, emd_amount,
+            portal_tender_id, nit_id, tender_type,
             raw_data_json, in_scope, out_of_scope, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)
         ON CONFLICT(state, tender_number) DO UPDATE SET
             department_code=excluded.department_code,
+            department_name=coalesce(excluded.department_name, tenders.department_name),
             category=coalesce(excluded.category, tenders.category),
             status=coalesce(excluded.status, tenders.status),
             title=coalesce(excluded.title, tenders.title),
@@ -363,6 +484,9 @@ def upsert_public_tender(connection, source_row, expected_department=None):
             closing_date=coalesce(excluded.closing_date, tenders.closing_date),
             estimated_value=coalesce(excluded.estimated_value, tenders.estimated_value),
             emd_amount=coalesce(excluded.emd_amount, tenders.emd_amount),
+            portal_tender_id=coalesce(excluded.portal_tender_id, tenders.portal_tender_id),
+            nit_id=coalesce(excluded.nit_id, tenders.nit_id),
+            tender_type=coalesce(excluded.tender_type, tenders.tender_type),
             raw_data_json=excluded.raw_data_json,
             in_scope=1,
             out_of_scope=0,
@@ -372,6 +496,7 @@ def upsert_public_tender(connection, source_row, expected_department=None):
             STATE,
             tender_number,
             prefix,
+            str(dept_name) if dept_name is not None else None,
             category,
             status,
             str(title) if title is not None else None,
@@ -379,11 +504,27 @@ def upsert_public_tender(connection, source_row, expected_department=None):
             str(closing) if closing is not None else None,
             str(estimated) if estimated is not None else None,
             str(emd) if emd is not None else None,
+            str(portal_tender_id) if portal_tender_id is not None else None,
+            str(nit_id) if nit_id is not None else None,
+            str(tender_type) if tender_type is not None else None,
             raw,
             timestamp,
             timestamp,
         ),
     )
+
+    # Fetch full view once per new or changed tender if client is available
+    has_full_view = bool(previous and previous["officer_details"] and previous["estimated_value"])
+    if client is not None and (is_new or is_changed or not has_full_view):
+        fetch_and_store_tender_full_view(
+            client=client,
+            connection=connection,
+            tender_number=tender_number,
+            tender_id=portal_tender_id,
+            nit_id=nit_id,
+            category=category or "GOODS",
+        )
+
     bid_timestamp = connection.execute(
         """
         SELECT min(created_at) FROM bids
@@ -423,3 +564,128 @@ def upsert_public_tender(connection, source_row, expected_department=None):
         (STATE, tender_number, timestamp, STATE, tender_number),
     )
     return True
+
+
+def save_tender_bids(connection, tender_number: str, evaluation_result: dict):
+    bids = evaluation_result.get("bids", [])
+    items = evaluation_result.get("items", [])
+    discrepancy = evaluation_result.get("check_status")
+    now = now_utc()
+
+    # Track previous L1 to detect L1 change events
+    prev_l1_row = connection.execute(
+        """
+        SELECT supplier_name, total FROM bids
+        WHERE state = ? AND tender_number = ? AND (rank = 1 OR selected IN (1, '1', 'true', 'TRUE'))
+        ORDER BY rank ASC LIMIT 1
+        """,
+        (STATE, tender_number),
+    ).fetchone()
+    prev_l1_name = prev_l1_row["supplier_name"] if prev_l1_row else None
+
+    # Replace bids for this tender with latest parsed results
+    connection.execute("DELETE FROM bids WHERE state = ? AND tender_number = ?", (STATE, tender_number))
+    for bid in bids:
+        connection.execute(
+            """
+            INSERT INTO bids(
+                state, tender_number, item_name, supplier_id, supplier_name,
+                rate, total, rank, selected, check_reason, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                STATE,
+                tender_number,
+                bid.get("item_name") or "Main Bid",
+                str(bid.get("supplier_id") or "") or None,
+                bid.get("supplier_name"),
+                str(bid.get("rate")) if bid.get("rate") is not None else None,
+                str(bid.get("total")) if bid.get("total") is not None else None,
+                bid.get("rank"),
+                1 if bid.get("selected") else 0,
+                discrepancy,
+                now,
+            ),
+        )
+
+    # Save item breakdowns
+    if items:
+        connection.execute("DELETE FROM tender_items WHERE state = ? AND tender_number = ?", (STATE, tender_number))
+        for item in items:
+            connection.execute(
+                """
+                INSERT INTO tender_items(state, tender_number, item_name, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (STATE, tender_number, item.get("item_name"), now),
+            )
+
+    # Check if tender already had bids opened
+    t_row = connection.execute(
+        "SELECT bids_opened_at FROM tenders WHERE state = ? AND tender_number = ?",
+        (STATE, tender_number),
+    ).fetchone()
+    if t_row and not t_row["bids_opened_at"] and bids:
+        connection.execute(
+            "UPDATE tenders SET bids_opened_at = ?, updated_at = ? WHERE state = ? AND tender_number = ?",
+            (now, now, STATE, tender_number),
+        )
+        connection.execute(
+            """
+            INSERT INTO change_events(state, tender_number, change_type, old_value, new_value, created_at)
+            VALUES (?, ?, 'bids_opened', NULL, ?, ?)
+            """,
+            (STATE, tender_number, now, now),
+        )
+
+    # Detect L1 change
+    new_l1 = evaluation_result.get("l1_name")
+    if prev_l1_name and new_l1 and prev_l1_name != new_l1:
+        connection.execute(
+            """
+            INSERT INTO change_events(state, tender_number, change_type, old_value, new_value, created_at)
+            VALUES (?, ?, 'l1_changed', ?, ?, ?)
+            """,
+            (STATE, tender_number, prev_l1_name, new_l1, now),
+        )
+
+    # If discrepancy, record on tender
+    if discrepancy:
+        connection.execute(
+            "UPDATE tenders SET check_reason = ? WHERE state = ? AND tender_number = ?",
+            (discrepancy, STATE, tender_number),
+        )
+
+    # Auto-link quoted tender if our company is present
+    if evaluation_result.get("we_bid"):
+        connection.execute(
+            """
+            INSERT INTO quoted_tenders(state, tender_number, source, added_at, bids_opened_at)
+            VALUES (?, ?, 'public_bid_match', ?, ?)
+            ON CONFLICT(state, tender_number) DO UPDATE SET
+                bids_opened_at = coalesce(quoted_tenders.bids_opened_at, excluded.bids_opened_at)
+            """,
+            (STATE, tender_number, now, now),
+        )
+
+
+def get_watermark(connection, source_name="kppp") -> str | None:
+    row = connection.execute(
+        "SELECT watermark_date FROM scan_watermarks WHERE state = ? AND source_name = ?",
+        (STATE, source_name),
+    ).fetchone()
+    return row["watermark_date"] if row else None
+
+
+def set_watermark(connection, watermark_date: str, source_name="kppp") -> None:
+    connection.execute(
+        """
+        INSERT INTO scan_watermarks(state, source_name, watermark_date, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(state, source_name) DO UPDATE SET
+            watermark_date = excluded.watermark_date,
+            updated_at = excluded.updated_at
+        """,
+        (STATE, source_name, watermark_date, now_utc()),
+    )
+
