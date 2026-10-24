@@ -11,6 +11,14 @@ venv/
 *.sqlite-wal
 *.sqlite-shm
 logs/*.log
+*.sqlite
+*.db
+data/
+public/raw/
+exports/
+.env
+.env.*
+!.env.example
 
 # Operating System files
 .DS_Store
@@ -19,5 +27,3 @@ Thumbs.db
 # Node.js and build output
 node_modules/
 dist/
-package-lock.json
-
