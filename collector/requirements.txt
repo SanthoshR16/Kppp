@@ -1,0 +1,4 @@
+# Dependencies for standalone KPPP Collector
+# Python 3.8+ required.
+# Uses only standard library modules (urllib, ssl, json, sqlite3, hashlib, time, os, re, zipfile)
+# No heavy external dependencies required for standalone extraction!
